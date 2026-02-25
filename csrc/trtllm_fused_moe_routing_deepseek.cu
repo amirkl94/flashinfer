@@ -518,15 +518,32 @@ int constexpr getMaxNumExperts(int32_t numExperts) {
 #define LAUNCH_ROUTING_DEEPSEEK(data, coopLaunch, kernel, numBlocks, numThreads, smemSize, stream, \
                                 extraFlag)                                                         \
   if (data.mNumExperts <= topk::MaxNumExpertsUnit) {                                               \
-    LAUNCH_ROUTING_DEEPSEEK_IMPL(data, coopLaunch, kernel, numBlocks, numThreads, smemSize,        \
-                                 stream, extraFlag, topk::MaxNumExpertsUnit,                       \
-                                 DefaultMaxNumTopExperts);                                         \
+    if (data.mTopK <= DefaultMaxNumTopExperts) {                                                   \
+      LAUNCH_ROUTING_DEEPSEEK_IMPL(data, coopLaunch, kernel, numBlocks, numThreads, smemSize,      \
+                                   stream, extraFlag, topk::MaxNumExpertsUnit,                     \
+                                   DefaultMaxNumTopExperts);                                       \
+    } else {                                                                                       \
+      LAUNCH_ROUTING_DEEPSEEK_IMPL(data, coopLaunch, kernel, numBlocks, numThreads, smemSize,      \
+                                   stream, extraFlag, topk::MaxNumExpertsUnit,                     \
+                                   MaxSupportedTopExperts);                                        \
+    }                                                                                              \
   } else if (data.mNumExperts <= NumDeepseekExperts) {                                             \
-    LAUNCH_ROUTING_DEEPSEEK_IMPL(data, coopLaunch, kernel, numBlocks, numThreads, smemSize,        \
-                                 stream, extraFlag, NumDeepseekExperts, DefaultMaxNumTopExperts);  \
+    if (data.mTopK <= DefaultMaxNumTopExperts) {                                                   \
+      LAUNCH_ROUTING_DEEPSEEK_IMPL(data, coopLaunch, kernel, numBlocks, numThreads, smemSize,      \
+                                   stream, extraFlag, NumDeepseekExperts,                          \
+                                   DefaultMaxNumTopExperts);                                       \
+    } else {                                                                                       \
+      LAUNCH_ROUTING_DEEPSEEK_IMPL(data, coopLaunch, kernel, numBlocks, numThreads, smemSize,      \
+                                   stream, extraFlag, NumDeepseekExperts, MaxSupportedTopExperts); \
+    }                                                                                              \
   } else if (data.mNumExperts <= NumKimiK2Experts) {                                               \
-    LAUNCH_ROUTING_DEEPSEEK_IMPL(data, coopLaunch, kernel, numBlocks, numThreads, smemSize,        \
-                                 stream, extraFlag, NumKimiK2Experts, DefaultMaxNumTopExperts);    \
+    if (data.mTopK <= DefaultMaxNumTopExperts) {                                                   \
+      LAUNCH_ROUTING_DEEPSEEK_IMPL(data, coopLaunch, kernel, numBlocks, numThreads, smemSize,      \
+                                   stream, extraFlag, NumKimiK2Experts, DefaultMaxNumTopExperts);  \
+    } else {                                                                                       \
+      LAUNCH_ROUTING_DEEPSEEK_IMPL(data, coopLaunch, kernel, numBlocks, numThreads, smemSize,      \
+                                   stream, extraFlag, NumKimiK2Experts, MaxSupportedTopExperts);   \
+    }                                                                                              \
   } else if (data.mNumExperts <= NumNemotronExperts) {                                             \
     if (data.mTopK <= DefaultMaxNumTopExperts) {                                                   \
       LAUNCH_ROUTING_DEEPSEEK_IMPL(data, coopLaunch, kernel, numBlocks, numThreads, smemSize,      \
@@ -558,17 +575,10 @@ void runImpl(Data& data, void* stream) {
                    "Routing kernel expects <= %d top groups, got %d", MaxNumTopGroups,
                    data.mNumLimitedGroups);
   // Test limits according to values passed in launch, see definition of LAUNCH_ROUTING_DEEPSEEK
-  if (data.mNumExperts <= NumKimiK2Experts) {
-    FLASHINFER_CHECK(
-        data.mTopK <= DefaultMaxNumTopExperts,
-        "When NumExperts <= NumKimiK2Experts, routing kernel expects topK experts <= %d, got %d",
-        DefaultMaxNumTopExperts, data.mTopK);
-  } else {
-    FLASHINFER_CHECK(
-        data.mTopK <= MaxSupportedTopExperts,
-        "When NumExperts > NumKimiK2Experts, routing kernel expects topK experts <= %d, got %d",
-        MaxSupportedTopExperts, data.mTopK);
-  }
+  // topK <= MaxSupportedTopExperts is supported for any numExperts > MaxSupportedTopExperts
+  FLASHINFER_CHECK(data.mTopK <= MaxSupportedTopExperts,
+                   "Routing kernel expects topK experts <= %d, got %d", MaxSupportedTopExperts,
+                   data.mTopK);
   FLASHINFER_CHECK(data.mTopK <= WarpSize, "Routing kernel expects top K <= warp size, got %d",
                    data.mTopK);
   FLASHINFER_CHECK(data.mTopK * data.mNumLimitedGroups <= WarpSize,
